@@ -42,16 +42,69 @@ public class GeneralScan<ElemType, TallyType> {
         }
 
     }
+    @SuppressWarnings("serial")
+    class ComputeReduction extends RecursiveAction {
+        private int i;
+
+        public ComputeReduction(int i) {
+            this.i=i;
+        }
+
+        @Override
+        protected void compute() {
+            if (!isLeaf(i)) {
+                if(i<N_THREADS-2) {
+                    invokeAll(new ComputeReduction(left(i)),new ComputeReduction(right(i)));
+                } else {
+                    reduce(i);
+                }
+                interior.set(i,combine(value(left(i)),value(right(i))));
+            }
+        }
+    }
+    @SuppressWarnings("serial")
+    class ComputeScan extends RecursiveAction {
+        private int i;
+        private TallyType tallyPrior;
+        private ArrayList<TallyType> out;
+
+        public ComputeScan(int i, TallyType tallyPrior, ArrayList<TallyType> out) {
+            this.i=i;
+            this.tallyPrior=tallyPrior;
+            this.out=out;
+        }
+
+        @Override
+        protected void compute() {
+            if (isLeaf(i)) {
+                output.set(i-(n-1), combine(tallyPrior,value(i)));
+            } else {
+                if (i<N_THREADS-2) {
+                    invokeAll(
+                            new ComputeScan(left(i), tallyPrior, out),
+                            new ComputeScan(right(i),tallyPrior,out)
+                    );
+                }
+            }
+        }
+    }
 
     TallyType getReduction() {
-        reduced= reduced || reduce(ROOT);
+//        reduced= reduced || reduce(ROOT);
+//        return value(ROOT);
+        if(!reduced) {
+            ForkJoinPool pool = new ForkJoinPool(N_THREADS);
+            pool.invoke(new ComputeReduction(ROOT));
+            reduced=true;
+        }
         return value(ROOT);
     }
 
-    void getScan(ArrayList<TallyType> output) {
-        reduced = reduced || reduce(ROOT);
-        scan(ROOT,init(),output);
-    }
+
+//    void getScan(ArrayList<TallyType> output) {
+//        reduced = reduced || reduce(ROOT);
+//        scan(ROOT,init(),output);
+//    }
 
     ArrayList<TallyType> getScan() {
         if(!reduced) {
@@ -65,6 +118,7 @@ public class GeneralScan<ElemType, TallyType> {
         scan(ROOT, init(),output);
         return output;
     }
+
     protected TallyType init() {
         throw new IllegalArgumentException("nope this is bad data type");
 

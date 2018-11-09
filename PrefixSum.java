@@ -1,8 +1,10 @@
 package CPSC5600;
 
 import java.util.ArrayList;
+import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.RecursiveAction;
 
-public class PrefixSum  {
+public class PrefixSum {
 
     static class Tally {
         public double d;
@@ -23,7 +25,7 @@ public class PrefixSum  {
             this.d += datum;
         }
     }
-    //this is the nested class
+    //this is the heap class
     static class SumScan extends GeneralScan<Double, Tally> {
 
         public SumScan(ArrayList<Double> raw) {
@@ -48,16 +50,20 @@ public class PrefixSum  {
         }
     }
 
+
+
     public static void main(String[] args) {
-        ArrayList<Double> temp =  generate(8);
-        for (Double d : temp) { System.out.println(d); }
+        ArrayList<Double> temp =  generate(1<<6);
+        //for (Double d : temp) { System.out.println(d); }
 
         SumScan test = new SumScan(temp);
         //System.out.println(test.n);
         Tally test1 = test.init();
-        System.out.println(test.getReduction().d);
+        System.out.println(test.getReduction().d + " am the reduction.");
         ArrayList<Tally> out = test.getScan();
         for (Tally d : out) { System.out.println(d.d); }
+        System.out.println("end of serial\n");
+        ForkJoinPool pool = new ForkJoinPool();
 
     }
 
