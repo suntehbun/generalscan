@@ -128,14 +128,8 @@ public class GeneralScan<ElemType, TallyType> {
         if (isLeaf(i)) {
             out.set(i-(n-1) , combine(tallyPrior, value(i)));
         } else {
-            if (i<N_THREADS-2) {
-                scan(left(i), combine(tallyPrior,value(left(i))),out);
-                scan(right(i), combine(tallyPrior,value(left(i))),out);
-
-            } else {
-                scan(left(i), tallyPrior, out);
-                scan(right(i), combine(tallyPrior,value(left(i))),out);
-            }
+            scan(left(i), tallyPrior, out);
+            scan(right(i), combine(tallyPrior,value(left(i))),out);
         }
     }
 }
