@@ -2,7 +2,6 @@ package CPSC5600;
 
 import java.util.ArrayList;
 import java.util.concurrent.ForkJoinPool;
-import java.util.concurrent.RecursiveAction;
 
 public class PrefixSum {
 
@@ -53,7 +52,8 @@ public class PrefixSum {
 
 
     public static void main(String[] args) {
-        ArrayList<Double> temp =  generate(1<<6);
+        int bit = 1<<18;
+        ArrayList<Double> temp =  generate(bit);
         //for (Double d : temp) { System.out.println(d); }
 
         SumScan test = new SumScan(temp);
@@ -63,8 +63,6 @@ public class PrefixSum {
         ArrayList<Tally> out = test.getScan();
         for (Tally d : out) { System.out.println(d.d); }
         System.out.println("end of serial\n");
-        ForkJoinPool pool = new ForkJoinPool();
-
     }
 
     private static ArrayList<Double> generate(int size) {

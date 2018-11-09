@@ -14,21 +14,25 @@ public class GeneralScan<ElemType, TallyType> {
 
     public static final int N_THREADS = 16;
     private final int ROOT = 0;
+    public static final int THREAD_THRESHOLD = 10000;
+    private int threshold;
 
     private ArrayList<ElemType> data;
     private ArrayList<TallyType> interior;
     private ArrayList<TallyType> output;
-    //private TallyType tallyFactory;
+    ForkJoinPool pool;
 
 
     private boolean reduced;
     public int n; //for size
     private int height;
 
+    /*
+        general
+     */
     GeneralScan(ArrayList<ElemType> data) {
 
         this.data=data;
-        //this.tallyFactory=factory;
         n = data.size();
         double temp = Math.log(n)/Math.log(2);
         height = (int)Math.ceil(temp);
@@ -40,7 +44,31 @@ public class GeneralScan<ElemType, TallyType> {
         if (1<<height!=n) {
             throw new java.lang.RuntimeException("data must be power of 2 for now"); //fixme
         }
+        threshold=THREAD_THRESHOLD;
+        this.pool= new ForkJoinPool();
+    }
 
+    /**
+     * step 3
+     * @param data
+     * @param threshold
+     */
+    GeneralScan(ArrayList<ElemType> data, int threshold) {
+        this.threshold=threshold;
+        this.data = data;
+        n = data.size();
+        double temp = Math.log(n) / Math.log(2);
+        height = (int) Math.ceil(temp);
+        this.interior = new ArrayList<>(n - 1);
+        //need to pad the interior as well as the data nodes
+        for (int i = 0; i < (n - 1); i++) {
+            interior.add(init());
+        }
+        reduced = false;
+//        if (1 << height != n) {
+//            throw new java.lang.RuntimeException("data must be power of 2 for now"); //fixme
+//        }
+        pool = new ForkJoinPool();
     }
     @SuppressWarnings("serial")
     class ComputeReduction extends RecursiveAction {
@@ -53,7 +81,7 @@ public class GeneralScan<ElemType, TallyType> {
         @Override
         protected void compute() {
             if (!isLeaf(i)) {
-                if(i<N_THREADS-2) {
+                if(dataSplit(i)) {
                     invokeAll(new ComputeReduction(left(i)),new ComputeReduction(right(i)));
                 } else {
                     reduce(i);
@@ -61,6 +89,16 @@ public class GeneralScan<ElemType, TallyType> {
                 interior.set(i,combine(value(left(i)),value(right(i))));
             }
         }
+//        protected void compute() {
+//            if (!isLeaf(i)) {
+//                if(dataPosition(i)<=threshold) {
+//                    invokeAll(new ComputeReduction(left(i)),new ComputeReduction(right(i)));
+//                } else {
+//                    reduce(i);
+//                }
+//                interior.set(i,combine(value(left(i)),value(right(i))));
+//            }
+//        }
     }
     @SuppressWarnings("serial")
     class ComputeScan extends RecursiveAction {
@@ -77,13 +115,16 @@ public class GeneralScan<ElemType, TallyType> {
         @Override
         protected void compute() {
             if (isLeaf(i)) {
-                output.set(i-(n-1), combine(tallyPrior,value(i)));
+                out.set(i-(n-1), combine(tallyPrior,value(i)));
             } else {
-                if (i<N_THREADS-2) {
+                if (dataSplit(i)) {
                     invokeAll(
-                            new ComputeScan(left(i), tallyPrior, out),
-                            new ComputeScan(right(i),tallyPrior,out)
+                        new ComputeScan(left(i), tallyPrior, out),
+                        new ComputeScan(right(i),combine(tallyPrior,value(left(i))),out)
                     );
+                }
+                else {
+                    scan(i,tallyPrior,out);
                 }
             }
         }
@@ -93,7 +134,6 @@ public class GeneralScan<ElemType, TallyType> {
 //        reduced= reduced || reduce(ROOT);
 //        return value(ROOT);
         if(!reduced) {
-            ForkJoinPool pool = new ForkJoinPool(N_THREADS);
             pool.invoke(new ComputeReduction(ROOT));
             reduced=true;
         }
@@ -115,13 +155,12 @@ public class GeneralScan<ElemType, TallyType> {
         for (int i = 0; i<data.size(); i++) {
             output.add(init());
         }
-        scan(ROOT, init(),output);
+        pool.invoke(new ComputeScan(ROOT,init(),output));
         return output;
     }
 
     protected TallyType init() {
         throw new IllegalArgumentException("nope this is bad data type");
-
     }
 
     protected TallyType prepare(ElemType datum) {
@@ -166,13 +205,8 @@ public class GeneralScan<ElemType, TallyType> {
 
     private boolean reduce(int i) {
         if (!isLeaf(i)) {
-            if (i<N_THREADS-2) {
-                reduce(left(i));
-                reduce(right(i));//this will be fork join pool
-            } else {
-                reduce(left(i));
-                reduce(right(i));
-            }
+            reduce(left(i));
+            reduce(right(i));
             interior.set(i,combine(value(left(i)),value(right(i))));
         }
         return true;
@@ -184,6 +218,18 @@ public class GeneralScan<ElemType, TallyType> {
         } else {
             scan(left(i), tallyPrior, out);
             scan(right(i), combine(tallyPrior,value(left(i))),out);
+        }
+    }
+
+    private boolean dataSplit(int i) {
+        return i%threshold==0;
+    }
+
+    //add more padding stuff LATER
+    private void makePower2() {
+        int nNew = 1<<height;
+        int dif = nNew-n;
+        for (int i = 0; i<dif;i++) {
         }
     }
 }
