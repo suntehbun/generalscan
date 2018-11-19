@@ -12,24 +12,24 @@ import javax.swing.JButton;
 import javax.swing.JFrame;
 
 public class HeatMap {
-    private static final int DIM = 150;
+    private static final int DIM = 16;
     private static final String REPLAY = "Replay";
     private static JFrame application;
     private static JButton button;
     private static Color[][] grid;
+    private static ArrayList<Tally> sums;
+    private static int CURRENT = 0;
 
     static class Tally {
         private int[] cells;
-        public double x,y;
 
         public Tally() {
-            x=0.0;
-            y=0.0;
+            cells = new int[DIM*DIM];
         }
 
         public Tally(Observation o) {
-            this.x=o.x;
-            this.y=o.y;
+            this();
+            accum(o);
         }
 
         public Tally(double x, double y) {
@@ -37,16 +37,37 @@ public class HeatMap {
             this.y=y;
         }
 
-        public static Tally combine(Tally a, Tally b) {
-            return new Tally(a.x + b.x, a.y + b.y);
+        public void incrCell(int row, int col) {
+            cells[row * DIM + col]++;
         }
 
-        public void accum(double datum) {
-            this.x += datum;
+        public static Tally combine(Tally a, Tally b) {
+            Tally tally = new Tally();
+            for (int i = 0; i<tally.cells.length; i++) {
+                tally.cells[i] = a.cells[i]+b.cells[i];
+            }
+            return tally;
+        }
+
+        public void accum(Observation datum) {
+
+            incrCell(place(datum.x),place(datum.y));
+        }
+
+        public int place(double val) {
+            return (int) ((val + 1.0) / (2.0/DIM));
+        }
+
+        public int getCell(int row, int col) {
+            return cells[row * DIM + col];
         }
 
         public String toString() {
-            return "x: " + x + " y: " + y;
+            String test = "";
+            for (int i : cells) {
+                test += " " + i;
+            }
+            return test;
         }
     }
 
@@ -72,8 +93,7 @@ public class HeatMap {
 
         @Override
         protected void accum(Tally tally, Observation o) {
-            tally.x+=o.x;
-            tally.y+=o.y;
+            tally.accum(o);
         }
     }
     public static void main(String[] args) throws FileNotFoundException, InterruptedException {
@@ -82,8 +102,8 @@ public class HeatMap {
         readFile(gridData);
         System.out.println(gridData.size());
         HeatScan scan = new HeatScan(gridData);
-        ArrayList<Tally> sums = scan.getScan();
-        for (Tally t : sums) { System.out.println(t); }
+        sums = scan.getScan();
+        //for (Tally t : sums) { System.out.println(t); }
         System.out.println(sums.size());
 
         grid = new Color[DIM][DIM];
@@ -98,7 +118,7 @@ public class HeatMap {
         button.addActionListener(new BHandler());
         application.add(button, BorderLayout.PAGE_END);
 
-        application.setSize(DIM * 4, (int)(DIM * 4));
+        application.setSize(DIM * DIM, DIM * DIM);
         application.setVisible(true);
         application.repaint();
         animate();
@@ -109,9 +129,9 @@ public class HeatMap {
         try {
             ObjectOutputStream out = new ObjectOutputStream(new FileOutputStream(FILENAME));
             int t = 0;
-            for (double r = -0.95; r <= 0.95; r += 0.125) {
+            for (double r = -1; r < 1; r += 0.125) {
                 t++; // each row has the same value of t so we can see differences in step 7
-                for (double c = -0.95; c <= 0.95; c += 0.125)
+                for (double c = -1; c < 1; c += 0.125)
                     out.writeObject(new Observation(t, c, r));
             }
             out.writeObject(new Observation());  // to mark EOF
@@ -132,7 +152,7 @@ public class HeatMap {
             int count = 0;
             Observation obs = (Observation) in.readObject();
             while (!obs.isEOF()) {
-                System.out.println(++count + ": " + obs);
+                //System.out.println(++count + ": " + obs);
                 obs = (Observation) in.readObject();
                 data.add(obs);
             }
@@ -145,8 +165,9 @@ public class HeatMap {
     }
     private static void animate() throws InterruptedException {
         button.setEnabled(false);
-        for (int i = 0; i < DIM; i++) {
+        for (int i = 0; i < sums.size(); i++) {
             fillGrid(grid);
+            CURRENT++;
             application.repaint();
             Thread.sleep(50);
         }
@@ -175,13 +196,15 @@ public class HeatMap {
 
     private static void fillGrid(Color[][] grid) {
         int pixels = grid.length * grid[0].length;
+        int counter = 0;
         for (int r = 0; r < grid.length; r++)
-            for (int c = 0; c < grid[r].length; c++)
-                grid[r][c] = interpolateColor((r*c+offset)%pixels / (double)pixels, COLD, HOT);
-        offset += DIM;
+            for (int c = 0; c < grid[r].length; c++) {
+                grid[r][c] = interpolateColor(sums.get(CURRENT).getCell(r, c), COLD, HOT);
+            }
     }
 
     private static Color interpolateColor(double ratio, Color a, Color b) {
+        ratio = Math.min(ratio, 1.0);
         int ax = a.getRed();
         int ay = a.getGreen();
         int az = a.getBlue();
