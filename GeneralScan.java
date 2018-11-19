@@ -15,7 +15,6 @@ import java.util.concurrent.RecursiveAction;
 
 public class GeneralScan<ElemType, TallyType> {
 
-    public static final int N_THREADS = 16;
     private final int ROOT = 0;
     public static final int THREAD_THRESHOLD = 10000;
     private int threshold;          //to split the work later
@@ -23,7 +22,6 @@ public class GeneralScan<ElemType, TallyType> {
     private ArrayList<ElemType> data;
     public ArrayList<TallyType> interior;
     ForkJoinPool pool;      //pool of threads
-
 
     private boolean reduced;
     public int n; //for size
@@ -37,7 +35,6 @@ public class GeneralScan<ElemType, TallyType> {
     GeneralScan(ArrayList<ElemType> data) {
         this.data=data;
         n = data.size();
-        ElemType test =  data.get(0);
         double temp = Math.log(n)/Math.log(2);
         height = (int)Math.ceil(temp);
         this.interior = new ArrayList<>(n-1);
@@ -60,22 +57,19 @@ public class GeneralScan<ElemType, TallyType> {
      * @param threshold with choice of threshold
      */
     GeneralScan(ArrayList<ElemType> data, int threshold) {
+        reduced=false;
         this.threshold=threshold;
         this.data = data;
         n = data.size();
-        double temp = Math.log(n) / Math.log(2);
-        height = (int) Math.ceil(temp);
-        this.interior = new ArrayList<>(n - 1);
-        //need to pad the interior as well as the data nodes
-        for (int i = 0; i < (n-1); i++) {
-            interior.add(init());
-        }
-        reduced = false;
-        if (1 << height != n) {
-            throw new java.lang.RuntimeException("data must be power of 2 for now"); //fixme
-        }
-        pool = new ForkJoinPool();
+        height = 0;
+        while ((1<<height) < n)
+            height++;
         firstDataIndex = (1<<height) - 1;
+        int m = 4 * (1 + firstDataIndex/threshold);
+        interior = new ArrayList<>(m);
+        for (int i = 0; i < m; i++)
+            interior.add(init());
+        pool = new ForkJoinPool();
     }
 
     /**
@@ -86,18 +80,52 @@ public class GeneralScan<ElemType, TallyType> {
     GeneralScan(ArrayList<ElemType> data,ElemType e, int threshold) {
         this.data=data;
         n = data.size();
-        double temp = Math.log(n)/Math.log(2);
-        height = (int)Math.ceil(temp);
-        this.interior = new ArrayList<>(n-1);
-        for (int i = 0; i <  (n-1);i++){
-            interior.add(init());
-        }
-        reduced = false;
-        makePower2(e);
-        threshold=THREAD_THRESHOLD;
-        this.pool= new ForkJoinPool();
-        this.firstDataIndex=1<<height-1;
         this.threshold=threshold;
+        int checker = n/threshold;
+        int modChecker = n%threshold;
+
+        double temp = Math.log(checker)/Math.log(2);
+        height = (int)Math.ceil(temp);
+        reduced = false;
+        this.pool= new ForkJoinPool();
+
+        if (1 << height != n/threshold || modChecker!=0) {
+            int m = calculateNext2(n/threshold);
+            m = 1<<m;
+            makePower2(e);
+            System.out.println("m = " + m);
+            this.interior = new ArrayList<>(m-1);
+            for (int i = 0; i <  m;i++){
+                System.out.println("squaring m " + i);
+                interior.add(init());
+            }
+        } else {
+            System.out.println(1<<height);
+            this.interior = new ArrayList<>();
+            for (int i = 0; i <  checker;i++){
+                System.out.println("nothing has changed");
+                interior.add(init());
+            }
+        }
+        this.firstDataIndex=1<<height-1;
+        System.out.println(height + " " + firstDataIndex);
+    }
+
+    /**
+     * version 2/3 reduce that uses accum instead. Eventually will use
+     * parent method to transfer to interior node more.
+     * @param i the index of the arraylist
+     */
+    protected void reduce(int i) {
+        int first = getFirstDataIndex(i);
+        int last = getLastDataIndex(i);
+        TallyType tally = init();
+        if (first!= -1) {
+            for (int j = first; j<=last; j++) {
+                accum(tally, leafValue(j));
+            }
+            interior.set(i,tally);
+        }
     }
 
     @SuppressWarnings("serial")
@@ -109,14 +137,14 @@ public class GeneralScan<ElemType, TallyType> {
         }
 
         protected void compute() {
-            if (!isLeaf(i)) {
-                if(dataCount(i)>threshold) {
-                    invokeAll(new ComputeReduction(left(i)),new ComputeReduction(right(i)));
-                    interior.set(i,combine(value(left(i)),value(right(i))));
-                } else {
-                    reduce(i);
-                }
+            if (dataCount(i) < threshold) {
+                reduce(i);
+                return;
             }
+            invokeAll(
+                    new ComputeReduction(left(i)),
+                    new ComputeReduction(right(i)));
+            interior.set(i, combine(value(left(i)), value(right(i))));
         }
     }
 
@@ -154,34 +182,6 @@ public class GeneralScan<ElemType, TallyType> {
         }
     }
 
-    /**
-     * version 2 that uses forkjoinpool to get the reduction
-     * @return the reduction.
-     */
-    TallyType getReduction() {
-        if(!reduced) {
-            pool.invoke(new ComputeReduction(ROOT));
-            reduced=true;
-        }
-        return value(ROOT);
-    }
-
-    /**
-     * version 2 that retrieves scan values using forkjoinpool
-     * @return the output scan arraylist
-     */
-    ArrayList<TallyType> getScan() {
-        if(!reduced) {
-            getReduction();
-        }
-
-        ArrayList<TallyType> output= new ArrayList<>();
-        for (int i = 0; i<data.size(); i++) {
-            output.add(init());
-        }
-        pool.invoke(new ComputeScan(ROOT,init(),output));
-        return output;
-    }
 
     //functions to be overridden below
     protected TallyType init() {
@@ -199,9 +199,8 @@ public class GeneralScan<ElemType, TallyType> {
         throw new IllegalArgumentException("accum is bad");
     }
 
-
     private int size() {
-        return (n-1) + n;
+        return firstDataIndex + n;
     }
 
     private TallyType value(int i) {
@@ -210,6 +209,12 @@ public class GeneralScan<ElemType, TallyType> {
         } else {
             return prepare(data.get(i-(n-1)));
         }
+    }
+
+    protected ElemType leafValue(int i) {
+        if (i < firstDataIndex || i >= size())
+            throw new IllegalArgumentException("bad i " + i);
+        return data.get(i - firstDataIndex);
     }
 
     /**
@@ -289,22 +294,36 @@ public class GeneralScan<ElemType, TallyType> {
         return getLastDataIndex(left(i));
     }
 
+
     /**
-     * version 2/3 reduce that uses accum instead. Eventually will use
-     * parent method to transfer to interior node more.
-     * @param i the index of the arraylist
+     * version 2 that uses forkjoinpool to get the reduction
+     * @return the reduction.
      */
-    protected void reduce(int i) {
-        int first = getFirstDataIndex(i);
-        int last = getLastDataIndex(i);
-        TallyType tally = init();
-        if (first!= -1) {
-            for (int j = first; j<=last; j++) {
-                accum(tally,data.get(i));
-            }
-            interior.set(i,tally);
+    TallyType getReduction() {
+        if(!reduced) {
+            pool.invoke(new ComputeReduction(ROOT));
+            reduced=true;
         }
+        return value(ROOT);
     }
+
+    /**
+     * version 2 that retrieves scan values using forkjoinpool
+     * @return the output scan arraylist
+     */
+    ArrayList<TallyType> getScan() {
+        if(!reduced) {
+            getReduction();
+        }
+
+        ArrayList<TallyType> output= new ArrayList<>();
+        for (int i = 0; i<data.size(); i++) {
+            output.add(init());
+        }
+        pool.invoke(new ComputeScan(ROOT,init(),output));
+        return output;
+    }
+
 
     /**
      * version 2/3 scan that uses
@@ -329,15 +348,36 @@ public class GeneralScan<ElemType, TallyType> {
         return getLastDataIndex(i)-getFirstDataIndex(i);
     }
 
+    private int calculateNext2() {
+        int before = n/threshold;
+        if (before!=0) {
+            int after = 32 - Integer.numberOfLeadingZeros(before - 1);
+            if (before == after) {
+                return before;
+            }
+        }
+        return before<<1;
+    }
+    private int calculateNext2(int num) {
+        int before = num/threshold;
+        if (before!=0) {
+            int after = 32 - Integer.numberOfLeadingZeros(before - 1);
+            if (before == after) {
+                return before;
+            }
+        }
+        return before<<1;
+    }
 
     //add more padding stuff
     protected void makePower2(ElemType e) {
-        int nNew = 1<<height;
-        int dif = nNew-n;
-        for (int i = 0; i<dif;i++) {
+        int m = calculateNext2();
+        System.out.println("i am m " + m);
+        int dataPad = 4*threshold;
+        System.out.println("padding by this much " + (dataPad-n));
+        for (int i = n; i<dataPad; i++) {
             data.add(e);
-            interior.add(init());
         }
-        n=nNew;
+        n=data.size();
     }
 }
