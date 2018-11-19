@@ -22,9 +22,15 @@ public class HeatMap {
 
     static class Tally {
         private int[] cells;
+        private Observation[] history;
+        private int front, back;
+
 
         public Tally() {
             cells = new int[DIM*DIM];
+            history = new Observation[DIM];
+            front = 0;
+            back = 0;
         }
 
         public Tally(Observation o) {
@@ -32,34 +38,73 @@ public class HeatMap {
             accum(o);
         }
 
-        public Tally(double x, double y) {
-            this.x=x;
-            this.y=y;
-        }
-
         public void incrCell(int row, int col) {
             cells[row * DIM + col]++;
+        }
+        public void decrCell(int row, int col) {
+            cells[row * DIM + col]--;
         }
 
         public static Tally combine(Tally a, Tally b) {
             Tally tally = new Tally();
-            for (int i = 0; i<tally.cells.length; i++) {
-                tally.cells[i] = a.cells[i]+b.cells[i];
+            for (int aFront = 0; aFront<a.back; aFront=nextQueue(aFront)) {
+                tally.accum(a.history[aFront]);
+            }
+            for (int bFront = 0; bFront<b.back; bFront=nextQueue(bFront)) {
+                tally.accum(b.history[bFront]);
             }
             return tally;
         }
 
         public void accum(Observation datum) {
-
-            incrCell(place(datum.x),place(datum.y));
+            if (datum != null) {
+                incrCell(place(datum.x),place(datum.y));
+                //System.out.println("incrementing");
+                if (fullQueue()) {
+                    Observation old = deQueue();
+                    if (old != null) {
+                        decrCell(place(old.x),place(old.y));
+                        System.out.println("decrementing");
+                    }
+                }
+                enQueue(datum);
+            }
         }
 
+        private void enQueue(Observation o) {
+            System.out.println("im before an equeue!");
+            if (!fullQueue()) {
+                history[back] = o;
+                back = nextQueue(back);
+            }
+        }
+
+        private Observation deQueue() {
+            Observation o = null;
+            if (!emptyQueue()) {
+                o = history[front];
+                //history[front] = null;
+                front = nextQueue(front);
+                return o;
+            }
+            return null;
+        }
         public int place(double val) {
             return (int) ((val + 1.0) / (2.0/DIM));
         }
 
         public int getCell(int row, int col) {
             return cells[row * DIM + col];
+        }
+        private boolean fullQueue() {
+            return nextQueue(back) == front;
+        }
+        private boolean emptyQueue() {
+            return front==back;
+        }
+
+        private static int nextQueue(int i) {
+            return (i+1) % (DIM);
         }
 
         public String toString() {
