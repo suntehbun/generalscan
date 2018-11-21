@@ -50,13 +50,25 @@ public class Observation implements Serializable {
 	 * @param args
 	 */
 	public static void main(String[] args) {
+//		int m = 7/3;
+//		int o = m;
+//		int n = 32-Integer.numberOfLeadingZeros(o-1);
+//		System.out.println(o);
+//		for (int i = 0; i<n*2;i++) {
+//			System.out.print(i+1);
+//		}
+//		System.out.println();
+//		System.out.println(1<<3);
 		final String FILENAME = "observation_test.dat";
+		double l = 1/7;
 		try {
 			ObjectOutputStream out = new ObjectOutputStream(new FileOutputStream(FILENAME));
 			for (long t = 0; t < 6; t++)
-				for (double x = 0.0; x <= 1000.0; x += 100.0)
-					for (double y = -3.0; y >= -50.0; y -= 9.0)
-						out.writeObject(new Observation(t, x, y));
+			for (double r = -1.0; r <= 1; r += .25) {
+				t++; // each row has the same value of t so we can see differences in step 7
+				for (double c = -1.0; c <= 1; c += .25)
+					out.writeObject(new Observation(t, c, r));
+			}
 			out.writeObject(new Observation());  // to mark EOF
 			out.close();
 		} catch (IOException e) {
@@ -64,7 +76,7 @@ public class Observation implements Serializable {
          e.printStackTrace();
          System.exit(1);
 		}
-		
+
 		try {
 			ObjectInputStream in = new ObjectInputStream(new FileInputStream(FILENAME));
 			int count = 0;

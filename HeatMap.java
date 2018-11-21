@@ -1,4 +1,10 @@
+/**
+ * Sunny Yeung
+ * HeatMap.java
+ */
+
 package CPSC5600;
+
 
 import java.io.*;
 import java.util.ArrayList;
@@ -7,6 +13,9 @@ import java.awt.Color;
 import java.awt.event.ActionEvent;
 import java.awt.event.ActionListener;
 import java.io.FileNotFoundException;
+import java.util.HashMap;
+import java.util.Map;
+import java.util.Random;
 
 import javax.swing.JButton;
 import javax.swing.JFrame;
@@ -23,20 +32,28 @@ public class HeatMap {
     static class Tally {
         private int[] cells;
         private Observation[] history;
+        private ArrayList<ArrayList<Observation>> queue;
+        public Map<Long,ArrayList<Observation>> all;
         private int front, back;
+        public Map<Long, TimeStamp> collection;
 
 
         public Tally() {
             cells = new int[DIM*DIM];
             history = new Observation[DIM];
+            collection = new HashMap<>();
+            all = new HashMap<>();
+            queue = new ArrayList<>();
             front = 0;
             back = 0;
+
         }
 
         public Tally(Observation o) {
             this();
             accum(o);
         }
+
 
         public void incrCell(int row, int col) {
             cells[row * DIM + col]++;
@@ -47,32 +64,57 @@ public class HeatMap {
 
         public static Tally combine(Tally a, Tally b) {
             Tally tally = new Tally();
-            for (int aFront = 0; aFront<a.back; aFront=nextQueue(aFront)) {
-                tally.accum(a.history[aFront]);
+            ArrayList<Observation> aList;
+            for (Map.Entry<Long,ArrayList<Observation>> temp : a.all.entrySet()) {
+                aList = temp.getValue();
+                for(Observation o : aList) {
+                    tally.accum(o);
+                }
             }
-            for (int bFront = 0; bFront<b.back; bFront=nextQueue(bFront)) {
-                tally.accum(b.history[bFront]);
+            for (Map.Entry<Long,ArrayList<Observation>> temp : b.all.entrySet()) {
+                aList = temp.getValue();
+                for(Observation o : aList) {
+                    tally.accum(o);
+                }
             }
             return tally;
+//            for (int aFront = 0; aFront<a.back; aFront=nextQueue(aFront)) {
+//                tally.accum(a.history[aFront]);
+//            }
+//            for (int bFront = 0; bFront<b.back; bFront=nextQueue(bFront)) {
+//                tally.accum(b.history[bFront]);
+//            }
+//            return tally;
         }
 
-        public void accum(Observation datum) {
-            if (datum != null) {
-                incrCell(place(datum.x),place(datum.y));
-                //System.out.println("incrementing");
-                if (fullQueue()) {
-                    Observation old = deQueue();
-                    if (old != null) {
-                        decrCell(place(old.x),place(old.y));
-                        System.out.println("decrementing");
-                    }
+        public void accum(Observation o) {
+            if (o!=null) {
+                long time = o.time;
+                if(all.containsKey(time)&&collection.containsKey(time)) {
+                    all.get(time).add(o);
+                    collection.get(time).incrCell(place(o.x),place(o.y));
+                } else {
+                    ArrayList<Observation> timestamp = new ArrayList<>();
+                    timestamp.add(o);
+                    all.put(time,timestamp);
+                    TimeStamp t = new TimeStamp(DIM);
+                    t.incrCell(place(o.x),place(o.y));
+                    collection.put(time,t);
                 }
-                enQueue(datum);
             }
+//            if (datum != null) {
+//                incrCell(place(datum.x),place(datum.y));
+//                if (fullQueue()) {
+//                    Observation old = deQueue();
+//                    if (old != null) {
+//                        decrCell(place(old.x),place(old.y));
+//                    }
+//                }
+//                enQueue(datum);
+//            }
         }
 
         private void enQueue(Observation o) {
-            System.out.println("im before an equeue!");
             if (!fullQueue()) {
                 history[back] = o;
                 back = nextQueue(back);
@@ -141,15 +183,21 @@ public class HeatMap {
             tally.accum(o);
         }
     }
+
     public static void main(String[] args) throws FileNotFoundException, InterruptedException {
         ArrayList<Observation> gridData = new ArrayList<>();
         uniformSpray();
         readFile(gridData);
         System.out.println(gridData.size());
         HeatScan scan = new HeatScan(gridData);
+        //Map<Long, ArrayList<Observation>> test = scan.getReduction().all;
+        //System.out.println(test.size()+" "+ test);
+
+        Map<Long, TimeStamp> collection = scan.getReduction().collection;
+        System.out.println(collection);
+
         sums = scan.getScan();
         //for (Tally t : sums) { System.out.println(t); }
-        System.out.println(sums.size());
 
         grid = new Color[DIM][DIM];
         application = new JFrame();
@@ -169,15 +217,18 @@ public class HeatMap {
         animate();
 
     }
-    public static void uniformSpray() {
+    public static void uniformSpray() throws FileNotFoundException{
         final String FILENAME = "obs_uniform_spray.dat";
+        Random rand = new Random();
         try {
             ObjectOutputStream out = new ObjectOutputStream(new FileOutputStream(FILENAME));
             int t = 0;
-            for (double r = -1; r < 1; r += 0.125) {
+            for (double r = -1; r <= 1; r += 0.1) {
                 t++; // each row has the same value of t so we can see differences in step 7
-                for (double c = -1; c < 1; c += 0.125)
-                    out.writeObject(new Observation(t, c, r));
+                for (double c = -1; c <= 1; c += 0.1) {
+                    double d = rand.nextDouble()*2 -1;
+                    out.writeObject(new Observation(t, r, c));
+                }
             }
             out.writeObject(new Observation());  // to mark EOF
             out.close();
@@ -189,7 +240,7 @@ public class HeatMap {
         System.out.println("wrote " + FILENAME);
     }
 
-    public static void readFile(ArrayList<Observation> data) {
+    public static void readFile(ArrayList<Observation> data) throws FileNotFoundException {
         final String FILENAME = "obs_uniform_spray.dat";
         //this reads the file below
         try {
@@ -199,7 +250,9 @@ public class HeatMap {
             while (!obs.isEOF()) {
                 //System.out.println(++count + ": " + obs);
                 obs = (Observation) in.readObject();
-                data.add(obs);
+                if(!obs.isEOF()) {
+                    data.add(obs);
+                }
             }
             in.close();
         } catch (IOException | ClassNotFoundException e) {
@@ -223,6 +276,7 @@ public class HeatMap {
     static class BHandler implements ActionListener {
         public void actionPerformed(ActionEvent e) {
             if (REPLAY.equals(e.getActionCommand())) {
+                CURRENT=0;
                 new Thread() {
                     public void run() {
                         try {
@@ -234,18 +288,18 @@ public class HeatMap {
                 }.start();
             }
         }
-    };
+    }
 
     static private final Color COLD = new Color(0x0a, 0x37, 0x66), HOT = Color.RED;
-    static private int offset = 0;
 
     private static void fillGrid(Color[][] grid) {
         int pixels = grid.length * grid[0].length;
         int counter = 0;
-        for (int r = 0; r < grid.length; r++)
+        for (int r = 0; r < grid.length; r++) {
             for (int c = 0; c < grid[r].length; c++) {
-                grid[r][c] = interpolateColor(sums.get(CURRENT).getCell(r, c), COLD, HOT);
+                grid[r][c] = interpolateColor(sums.get(CURRENT).getCell(r, c)%DIM*DIM, COLD, HOT);
             }
+        }
     }
 
     private static Color interpolateColor(double ratio, Color a, Color b) {

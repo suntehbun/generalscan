@@ -1,6 +1,5 @@
 package CPSC5600;
 
-import java.io.*;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Random;
@@ -89,20 +88,21 @@ public class PrefixSum {
     }
 
     public static void main(String[] args) {
-        int bit = 1<<8;
-        ArrayList<Double> temp =  generate(bit);
+        int bit = 1<<3;
+        ArrayList<Double> temp =  generate(12);
         ArrayList<Observation> gridData = new ArrayList<>();
 
-        SumScan test = new SumScan(temp,100);
+        SumScan test = new SumScan(temp);
+        System.out.println(temp.size() + " am the size of the data array");
         System.out.println(test.getReduction().d + " am the reduction.");
+
         List<Tally> out = test.getScan();
         for (int i =0; i<out.size();i++) {
-            if (i%100==0) {
+            if (i%50==0) {
                 System.out.println(out.get(i).d);
-            }
+           }
         }
         System.out.println(out.get(out.size()-1).d);
-
     }
 
     /**

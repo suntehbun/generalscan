@@ -17,38 +17,35 @@ public class GeneralScan<ElemType, TallyType> {
 
     private final int ROOT = 0;
     public static final int THREAD_THRESHOLD = 10000;
-    private int threshold;          //to split the work later
+    protected int threshold;          //to split the work later
 
-    private ArrayList<ElemType> data;
+    protected ArrayList<ElemType> data;
     public ArrayList<TallyType> interior;
     ForkJoinPool pool;      //pool of threads
 
-    private boolean reduced;
-    public int n; //for size
-    private int height;
-    private int firstDataIndex; //index for first data element in arraylist
+    protected boolean reduced;
+    protected int n; //for size
+    protected int height;
+    protected int firstDataIndex; //index for first data element in arraylist
 
     /**
      * Initial constructor
      * @param data
      */
     GeneralScan(ArrayList<ElemType> data) {
-        this.data=data;
-        n = data.size();
-        double temp = Math.log(n)/Math.log(2);
-        height = (int)Math.ceil(temp);
-        this.interior = new ArrayList<>(n-1);
-        for (int i = 0; i < (n-1); i++){
-            interior.add(init());
-        }
         reduced = false;
-//        if (1<<height!=n) {
-//            throw new java.lang.RuntimeException("data must be power of 2 for now");
-//        }
-        threshold=THREAD_THRESHOLD;
-        this.pool= new ForkJoinPool();
+        n = data.size();
+        this.data = data;
+        height = 0;
+        while ((1<<height) < n)
+            height++;
         firstDataIndex = (1<<height) - 1;
-
+        threshold = THREAD_THRESHOLD;
+        int m = 4 * (1 + firstDataIndex/threshold);
+        interior = new ArrayList<>(m);
+        for (int i = 0; i < m; i++)
+            interior.add(init());
+        pool = new ForkJoinPool();
     }
 
     /**
@@ -93,14 +90,13 @@ public class GeneralScan<ElemType, TallyType> {
             int m = calculateNext2(n/threshold);
             m = 1<<m;
             makePower2(e);
-            System.out.println("m = " + m);
+            //System.out.println("m = " + m);
             this.interior = new ArrayList<>(m-1);
             for (int i = 0; i <  m;i++){
                 System.out.println("squaring m " + i);
                 interior.add(init());
             }
         } else {
-            System.out.println(1<<height);
             this.interior = new ArrayList<>();
             for (int i = 0; i <  checker;i++){
                 System.out.println("nothing has changed");
@@ -108,7 +104,46 @@ public class GeneralScan<ElemType, TallyType> {
             }
         }
         this.firstDataIndex=1<<height-1;
-        System.out.println(height + " " + firstDataIndex);
+    }
+
+    //functions to be overridden below
+    protected TallyType init() {
+        throw new IllegalArgumentException("nope this is bad data type");
+    }
+
+    protected TallyType prepare(ElemType datum) {
+        throw new IllegalArgumentException("prepare is bad");
+    }
+
+    protected TallyType combine(TallyType left, TallyType right) throws IllegalArgumentException {
+        throw new IllegalArgumentException("combine is bad");
+    }
+    protected void accum(TallyType tally, ElemType datum) {
+        throw new IllegalArgumentException("accum is bad");
+    }
+
+    protected int size() {
+        return firstDataIndex + n;
+    }
+
+    protected TallyType value(int i) {
+        if (i<firstDataIndex) {
+            return interior.get(i);
+        } else {
+            return prepare(data.get(i-firstDataIndex));
+        }
+    }
+
+    /**
+     * version 2 that uses forkjoinpool to get the reduction
+     * @return the reduction.
+     */
+    TallyType getReduction() {
+        if(!reduced) {
+            pool.invoke(new ComputeReduction(ROOT));
+            reduced=true;
+        }
+        return value(ROOT);
     }
 
     /**
@@ -148,6 +183,66 @@ public class GeneralScan<ElemType, TallyType> {
         }
     }
 
+
+    /**
+     * version 2 that retrieves scan values using forkjoinpool
+     * @return the output scan arraylist
+     */
+    ArrayList<TallyType> getScan() {
+        if(!reduced) {
+            getReduction();
+        }
+
+        ArrayList<TallyType> output= new ArrayList<>(n);
+        for (int i = 0; i<data.size(); i++) {
+            output.add(init());
+        }
+        pool.invoke(new ComputeScan(ROOT,init(),output));
+        return output;
+    }
+
+    ArrayList<TallyType> getScan(double d) {
+        if(!reduced) {
+            getReduction();
+        }
+
+        ArrayList<TallyType> output= new ArrayList<>();
+        for (int i = 0; i<data.size(); i++) {
+            output.add(init());
+        }
+        pool.invoke(new ComputeScan(ROOT,init(),output));
+        return output;
+    }
+
+//    protected void scan(int i, TallyType tallyPrior, ArrayList<TallyType> output) {
+//        int first = getFirstDataIndex(i), last = getLastDataIndex(i);
+//        if (first != -1)
+//            for (int j = first; j <= last; j++) {
+//                tallyPrior = combine(tallyPrior, value(j));
+//                if ((j-firstDataIndex) % 16 == 0 && (j-firstDataIndex)
+//                        /16 < data.size()/16) {
+//                    output.set((j - firstDataIndex) / 16, tallyPrior);
+//                }
+//            }
+//    }
+
+    /**
+     * version 2/3 scan that uses
+     * @param i index of node
+     * @param tallyPrior the prior tally for later calculations
+     * @param out the output array with our scans
+     */
+    protected void scan(int i, TallyType tallyPrior, ArrayList<TallyType> out) {
+        int first = getFirstDataIndex(i);
+        int last = getLastDataIndex(i);
+        if (first != -1) {
+            for (int j = first; j <= last; j++) {
+                tallyPrior = combine(tallyPrior, value(j));
+                out.set(j - firstDataIndex, tallyPrior);
+            }
+        }
+    }
+
     /**
      * Computing scan class that computes the scan using forkjoinpool and
      * forking when the data element is past the threshold
@@ -166,48 +261,13 @@ public class GeneralScan<ElemType, TallyType> {
 
         @Override
         protected void compute() {
-            if (isLeaf(i)) {
-                out.set(i-(n-1), combine(tallyPrior,value(i)));
-            } else {
-                if (dataCount(i)>threshold) {
-                    invokeAll(
-                        new ComputeScan(left(i), tallyPrior, out),
-                        new ComputeScan(right(i),combine(tallyPrior,value(left(i))),out)
-                    );
-                }
-                else {
-                    scan(i,tallyPrior,out);
-                }
+            if (dataCount(i) < threshold) {
+                scan(i, tallyPrior, out);
+                return;
             }
-        }
-    }
-
-
-    //functions to be overridden below
-    protected TallyType init() {
-        throw new IllegalArgumentException("nope this is bad data type");
-    }
-
-    protected TallyType prepare(ElemType datum) {
-        throw new IllegalArgumentException("prepare is bad");
-    }
-
-    protected TallyType combine(TallyType left, TallyType right) throws IllegalArgumentException {
-        throw new IllegalArgumentException("combine is bad");
-    }
-    protected void accum(TallyType tally, ElemType datum) {
-        throw new IllegalArgumentException("accum is bad");
-    }
-
-    private int size() {
-        return firstDataIndex + n;
-    }
-
-    private TallyType value(int i) {
-        if (i<n-1) {
-            return interior.get(i);
-        } else {
-            return prepare(data.get(i-(n-1)));
+            invokeAll(
+                    new ComputeScan(left(i), tallyPrior, out),
+                    new ComputeScan(right(i), combine(tallyPrior, value(left(i))), out));
         }
     }
 
@@ -250,8 +310,8 @@ public class GeneralScan<ElemType, TallyType> {
      * @param i the index
      * @return true if a a leaf
      */
-    private boolean isLeaf(int i) {
-        return right(i) >=size();
+    protected boolean isLeaf(int i) {
+        return left(i) >=size();
     }
 
     /**
@@ -294,55 +354,6 @@ public class GeneralScan<ElemType, TallyType> {
         return getLastDataIndex(left(i));
     }
 
-
-    /**
-     * version 2 that uses forkjoinpool to get the reduction
-     * @return the reduction.
-     */
-    TallyType getReduction() {
-        if(!reduced) {
-            pool.invoke(new ComputeReduction(ROOT));
-            reduced=true;
-        }
-        return value(ROOT);
-    }
-
-    /**
-     * version 2 that retrieves scan values using forkjoinpool
-     * @return the output scan arraylist
-     */
-    ArrayList<TallyType> getScan() {
-        if(!reduced) {
-            getReduction();
-        }
-
-        ArrayList<TallyType> output= new ArrayList<>();
-        for (int i = 0; i<data.size(); i++) {
-            output.add(init());
-        }
-        pool.invoke(new ComputeScan(ROOT,init(),output));
-        return output;
-    }
-
-
-    /**
-     * version 2/3 scan that uses
-     * @param i index of node
-     * @param tallyPrior the prior tally for later calculations
-     * @param out the output array with our scans
-     */
-    protected void scan(int i, TallyType tallyPrior, ArrayList<TallyType> out) {
-        int first = getFirstDataIndex(i);
-        int last = getLastDataIndex(i);
-        //if not
-        if (first != -1) {
-            for (int j = first; j <= last; j++) {
-                tallyPrior = combine(tallyPrior, value(j));
-                out.set(j - firstDataIndex, tallyPrior);
-            }
-        }
-    }
-
     //get data within their range.
     private int dataCount(int i) {
         return getLastDataIndex(i)-getFirstDataIndex(i);
@@ -372,9 +383,9 @@ public class GeneralScan<ElemType, TallyType> {
     //add more padding stuff
     protected void makePower2(ElemType e) {
         int m = calculateNext2();
-        System.out.println("i am m " + m);
+        //System.out.println("i am m " + m);
         int dataPad = 4*threshold;
-        System.out.println("padding by this much " + (dataPad-n));
+        //System.out.println("padding by this much " + (dataPad-n));
         for (int i = n; i<dataPad; i++) {
             data.add(e);
         }
