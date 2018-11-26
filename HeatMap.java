@@ -1,6 +1,9 @@
 /**
  * Sunny Yeung
  * HeatMap.java
+ * This file is the driver program that runs general scan as well as our general reduce.
+ * It has a static tally class as well as a static handcraftedscan class which keeps tracks of timestamps
+ * and a way to parallelize the second pass through. It uses hashmaps to store timestamps as well as calculating the scan.
  */
 
 package CPSC5600;
@@ -16,37 +19,33 @@ import java.io.FileNotFoundException;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.Random;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import javax.swing.JButton;
 import javax.swing.JFrame;
 
 public class HeatMap {
-    private static final int DIM = 16;
+    private static final int DIM = 20;
     private static final String REPLAY = "Replay";
     private static JFrame application;
     private static JButton button;
     private static Color[][] grid;
-    private static ArrayList<Tally> sums;
-    private static int CURRENT = 0;
+    private static Tally reduced;
+    private static long CURRENT = 1;
+    private static Map<Long,int[]> heatmaps = new HashMap<>();
 
     static class Tally {
         private int[] cells;
-        private Observation[] history;
-        private ArrayList<ArrayList<Observation>> queue;
+        public Map<Long,int[]> heatmaps;
         public Map<Long,ArrayList<Observation>> all;
-        private int front, back;
         public Map<Long, TimeStamp> collection;
 
 
         public Tally() {
             cells = new int[DIM*DIM];
-            history = new Observation[DIM];
             collection = new HashMap<>();
             all = new HashMap<>();
-            queue = new ArrayList<>();
-            front = 0;
-            back = 0;
-
         }
 
         public Tally(Observation o) {
@@ -54,37 +53,24 @@ public class HeatMap {
             accum(o);
         }
 
-
-        public void incrCell(int row, int col) {
-            cells[row * DIM + col]++;
-        }
-        public void decrCell(int row, int col) {
-            cells[row * DIM + col]--;
-        }
-
         public static Tally combine(Tally a, Tally b) {
             Tally tally = new Tally();
-            ArrayList<Observation> aList;
-            for (Map.Entry<Long,ArrayList<Observation>> temp : a.all.entrySet()) {
-                aList = temp.getValue();
-                for(Observation o : aList) {
-                    tally.accum(o);
+            TimeStamp stamp;
+            long time;
+            for (Map.Entry<Long,TimeStamp> temp : a.collection.entrySet()) {
+                stamp = temp.getValue();
+                time = temp.getKey();
+                if (b.collection.containsKey(time)) {
+                    TimeStamp other = b.collection.get(time);
+                    int combined[] = stamp.combine(other);
+                    other.setCells(combined);
+                    b.collection.put(time,other);
+                } else {
+                    b.collection.put(time,stamp);
                 }
             }
-            for (Map.Entry<Long,ArrayList<Observation>> temp : b.all.entrySet()) {
-                aList = temp.getValue();
-                for(Observation o : aList) {
-                    tally.accum(o);
-                }
-            }
+            tally.setCollection(b.collection);
             return tally;
-//            for (int aFront = 0; aFront<a.back; aFront=nextQueue(aFront)) {
-//                tally.accum(a.history[aFront]);
-//            }
-//            for (int bFront = 0; bFront<b.back; bFront=nextQueue(bFront)) {
-//                tally.accum(b.history[bFront]);
-//            }
-//            return tally;
         }
 
         public void accum(Observation o) {
@@ -102,59 +88,59 @@ public class HeatMap {
                     collection.put(time,t);
                 }
             }
-//            if (datum != null) {
-//                incrCell(place(datum.x),place(datum.y));
-//                if (fullQueue()) {
-//                    Observation old = deQueue();
-//                    if (old != null) {
-//                        decrCell(place(old.x),place(old.y));
-//                    }
-//                }
-//                enQueue(datum);
-//            }
         }
 
-        private void enQueue(Observation o) {
-            if (!fullQueue()) {
-                history[back] = o;
-                back = nextQueue(back);
-            }
+        public void setCollection(Map<Long,TimeStamp> other) {
+            this.collection=other;
         }
 
-        private Observation deQueue() {
-            Observation o = null;
-            if (!emptyQueue()) {
-                o = history[front];
-                //history[front] = null;
-                front = nextQueue(front);
-                return o;
-            }
-            return null;
-        }
         public int place(double val) {
             return (int) ((val + 1.0) / (2.0/DIM));
         }
 
-        public int getCell(int row, int col) {
-            return cells[row * DIM + col];
-        }
-        private boolean fullQueue() {
-            return nextQueue(back) == front;
-        }
-        private boolean emptyQueue() {
-            return front==back;
-        }
-
-        private static int nextQueue(int i) {
-            return (i+1) % (DIM);
-        }
-
         public String toString() {
-            String test = "";
-            for (int i : cells) {
-                test += " " + i;
+            String aString = "";
+            for (int i = 1; i<collection.size()+1;i++) {
+                Long aLong = (long) i;
+                TimeStamp t = collection.get(aLong);
+                int[] temp = t.cells;
+                for(int j = 0; j<temp.length;j++) {
+                    aString += temp[j];
+                }
             }
-            return test;
+            return aString;
+        }
+    }
+
+    static class HandCraftedScan implements Runnable {
+        Long time;
+        long decay = 3;
+        int[] cells;
+        Map<Long, TimeStamp> collection;
+
+        public HandCraftedScan(HeatMap.Tally tally, int time) {
+            this.time=(long) time;
+            this.collection=tally.collection;
+            this.cells=collection.get(this.time).cells;
+        }
+
+        @Override
+        public void run() {
+            Long min =  (time - decay);
+            if(min<=0) {
+                min = 1L;
+            }
+            int counter = 1;
+            for (Long i = time; i>min; i--) {
+                weight(collection.get(i).cells,counter);
+                counter++;
+            }
+            heatmaps.put(time,cells);
+        }
+        private void weight(int[] timeAtCell, int weight) {
+            for (int i = 0; i< timeAtCell.length;i++) {
+                cells[i]+=timeAtCell[i]/weight;
+            }
         }
     }
 
@@ -192,12 +178,23 @@ public class HeatMap {
         HeatScan scan = new HeatScan(gridData);
         //Map<Long, ArrayList<Observation>> test = scan.getReduction().all;
         //System.out.println(test.size()+" "+ test);
+        ExecutorService threadPool = Executors.newCachedThreadPool();
 
+        reduced = scan.getReduction();
         Map<Long, TimeStamp> collection = scan.getReduction().collection;
-        System.out.println(collection);
+        System.out.println(collection + " size:" + collection.size());
 
-        sums = scan.getScan();
-        //for (Tally t : sums) { System.out.println(t); }
+        ArrayList<HandCraftedScan> tasks = new ArrayList<>();
+        for (int i = 1; i<=reduced.collection.size();i++) {
+            threadPool.execute(new HandCraftedScan(reduced,i));
+        }
+        //threadPool.invokeAll(tasks);
+        int[] temp = heatmaps.get(4L);
+        System.out.println(temp);
+        for(int i = 0; i<temp.length;i++) {
+            System.out.print(temp[i]);
+        }
+        System.out.println();
 
         grid = new Color[DIM][DIM];
         application = new JFrame();
@@ -215,8 +212,12 @@ public class HeatMap {
         application.setVisible(true);
         application.repaint();
         animate();
-
     }
+
+    /**
+     * This generates a dataset and puts it into a file. Lifted from the observation file.
+     * @throws FileNotFoundException
+     */
     public static void uniformSpray() throws FileNotFoundException{
         final String FILENAME = "obs_uniform_spray.dat";
         Random rand = new Random();
@@ -227,7 +228,11 @@ public class HeatMap {
                 t++; // each row has the same value of t so we can see differences in step 7
                 for (double c = -1; c <= 1; c += 0.1) {
                     double d = rand.nextDouble()*2 -1;
-                    out.writeObject(new Observation(t, r, c));
+                    if (c<0&&r<0) {
+                        out.writeObject(new Observation(t, c, r));
+                    } else {
+                        out.writeObject(new Observation(t, r, c));
+                    }
                 }
             }
             out.writeObject(new Observation());  // to mark EOF
@@ -240,15 +245,18 @@ public class HeatMap {
         System.out.println("wrote " + FILENAME);
     }
 
+    /**
+     * This function reads in a file and puts all the data in the observations into an arraylist for processing
+     * @param data the arraylist to be filled in
+     * @throws FileNotFoundException
+     */
     public static void readFile(ArrayList<Observation> data) throws FileNotFoundException {
         final String FILENAME = "obs_uniform_spray.dat";
         //this reads the file below
         try {
             ObjectInputStream in = new ObjectInputStream(new FileInputStream(FILENAME));
-            int count = 0;
             Observation obs = (Observation) in.readObject();
             while (!obs.isEOF()) {
-                //System.out.println(++count + ": " + obs);
                 obs = (Observation) in.readObject();
                 if(!obs.isEOF()) {
                     data.add(obs);
@@ -261,22 +269,14 @@ public class HeatMap {
             System.exit(1);
         }
     }
-    private static void animate() throws InterruptedException {
-        button.setEnabled(false);
-        for (int i = 0; i < sums.size(); i++) {
-            fillGrid(grid);
-            CURRENT++;
-            application.repaint();
-            Thread.sleep(50);
-        }
-        button.setEnabled(true);
-        application.repaint();
-    }
 
+    /**
+     * This class acts as a thread that starts another animation if the user presses the replay button
+     */
     static class BHandler implements ActionListener {
         public void actionPerformed(ActionEvent e) {
             if (REPLAY.equals(e.getActionCommand())) {
-                CURRENT=0;
+                CURRENT=1;
                 new Thread() {
                     public void run() {
                         try {
@@ -290,18 +290,46 @@ public class HeatMap {
         }
     }
 
+    /**
+     * Animating function that shows our grid being filled in at each timestamp
+     * @throws InterruptedException
+     */
+    private static void animate() throws InterruptedException {
+        button.setEnabled(false);
+        //do it for reduced size as thats the timestamps amount per second.
+        for (int i = 0; i < reduced.collection.size(); i++) {
+            fillGrid(grid);
+            CURRENT++;
+            application.repaint();
+            Thread.sleep(50);
+        }
+        button.setEnabled(true);
+        application.repaint();
+    }
+    //colors to represent our hits and non hits.
     static private final Color COLD = new Color(0x0a, 0x37, 0x66), HOT = Color.RED;
 
+    /**
+     * This function fills in the grid object with consists of multiple color objects, using our observed hits.
+     * @param grid the grid to be filled with colors.
+     */
     private static void fillGrid(Color[][] grid) {
         int pixels = grid.length * grid[0].length;
         int counter = 0;
         for (int r = 0; r < grid.length; r++) {
             for (int c = 0; c < grid[r].length; c++) {
-                grid[r][c] = interpolateColor(sums.get(CURRENT).getCell(r, c)%DIM*DIM, COLD, HOT);
+                grid[r][c] = interpolateColor(heatmaps.get(CURRENT)[r * DIM + c], COLD, HOT);
             }
         }
     }
 
+    /**
+     * This method fills the color for the specific point in the grid by grasping the red, blue, green of a point.
+     * @param ratio the point's observed hits
+     * @param a the black color
+     * @param b the red color
+     * @return the color object created with the new color points.
+     */
     private static Color interpolateColor(double ratio, Color a, Color b) {
         ratio = Math.min(ratio, 1.0);
         int ax = a.getRed();

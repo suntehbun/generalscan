@@ -1,9 +1,3 @@
-package CPSC5600;
-
-import java.util.ArrayList;
-import java.util.concurrent.ForkJoinPool;
-import java.util.concurrent.RecursiveAction;
-
 /**
  * Sunny Yeung
  * GeneralScan.java
@@ -12,6 +6,11 @@ import java.util.concurrent.RecursiveAction;
  * the work operations are big.
  */
 
+package CPSC5600;
+
+import java.util.ArrayList;
+import java.util.concurrent.ForkJoinPool;
+import java.util.concurrent.RecursiveAction;
 
 public class GeneralScan<ElemType, TallyType> {
 
