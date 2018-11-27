@@ -29,7 +29,7 @@ public class GeneralScan<ElemType, TallyType> {
 
     /**
      * Initial constructor
-     * @param data
+     * @param data The data to be fed into general scan.
      */
     GeneralScan(ArrayList<ElemType> data) {
         reduced = false;
@@ -125,6 +125,11 @@ public class GeneralScan<ElemType, TallyType> {
         return firstDataIndex + n;
     }
 
+    /**
+     * Gets the value of the data in our tree heap structure
+     * @param i the index of the data structure
+     * @return the value of the node in our data index
+     */
     protected TallyType value(int i) {
         if (i<firstDataIndex) {
             return interior.get(i);
@@ -199,31 +204,6 @@ public class GeneralScan<ElemType, TallyType> {
         pool.invoke(new ComputeScan(ROOT,init(),output));
         return output;
     }
-
-    ArrayList<TallyType> getScan(double d) {
-        if(!reduced) {
-            getReduction();
-        }
-
-        ArrayList<TallyType> output= new ArrayList<>();
-        for (int i = 0; i<data.size(); i++) {
-            output.add(init());
-        }
-        pool.invoke(new ComputeScan(ROOT,init(),output));
-        return output;
-    }
-
-//    protected void scan(int i, TallyType tallyPrior, ArrayList<TallyType> output) {
-//        int first = getFirstDataIndex(i), last = getLastDataIndex(i);
-//        if (first != -1)
-//            for (int j = first; j <= last; j++) {
-//                tallyPrior = combine(tallyPrior, value(j));
-//                if ((j-firstDataIndex) % 16 == 0 && (j-firstDataIndex)
-//                        /16 < data.size()/16) {
-//                    output.set((j - firstDataIndex) / 16, tallyPrior);
-//                }
-//            }
-//    }
 
     /**
      * version 2/3 scan that uses

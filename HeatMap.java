@@ -8,7 +8,6 @@
 
 package CPSC5600;
 
-
 import java.io.*;
 import java.util.ArrayList;
 import java.awt.BorderLayout;
@@ -18,32 +17,32 @@ import java.awt.event.ActionListener;
 import java.io.FileNotFoundException;
 import java.util.HashMap;
 import java.util.Map;
-import java.util.Random;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
-
 import javax.swing.JButton;
 import javax.swing.JFrame;
 
 public class HeatMap {
-    private static final int DIM = 20;
+    private static final int DIM = 20;      //size of our dimensions for the array
     private static final String REPLAY = "Replay";
     private static JFrame application;
     private static JButton button;
-    private static Color[][] grid;
-    private static Tally reduced;
-    private static long CURRENT = 1;
+    private static Color[][] grid;          //the display color grid
+    private static Tally reduced;           //for our first pass tally for reduction
+    private static long CURRENT = 1;        //because our timestamp starts at 1 second
     private static Map<Long,int[]> heatmaps = new HashMap<>();
 
+
+    
     static class Tally {
-        private int[] cells;
-        public Map<Long,int[]> heatmaps;
-        public Map<Long,ArrayList<Observation>> all;
-        public Map<Long, TimeStamp> collection;
 
+        public Map<Long,ArrayList<Observation>> all;    //for storing into our map first time
+        public Map<Long, TimeStamp> collection;         //stores map matching timestamp second
 
+        /**
+         * Tally for part 2 that holds a collection of int array per timestamp seconds
+         */
         public Tally() {
-            cells = new int[DIM*DIM];
             collection = new HashMap<>();
             all = new HashMap<>();
         }
@@ -53,6 +52,13 @@ public class HeatMap {
             accum(o);
         }
 
+        /**
+         * Combine function which is not used for this part 2.
+         * Used in last hw for the extra credit
+         * @param a the first tally
+         * @param b the second tally
+         * @return the new combined tally
+         */
         public static Tally combine(Tally a, Tally b) {
             Tally tally = new Tally();
             TimeStamp stamp;
@@ -73,6 +79,11 @@ public class HeatMap {
             return tally;
         }
 
+        /**
+         * This function adds an observation into our map by checking if its timestamp
+         * is relevant, if not it adds the timestamp to that map being built.
+         * @param o
+         */
         public void accum(Observation o) {
             if (o!=null) {
                 long time = o.time;
@@ -94,6 +105,11 @@ public class HeatMap {
             this.collection=other;
         }
 
+        /**
+         * places an observation in the correct place in our dim dim array
+         * @param val the location of the point
+         * @return the location on the array
+         */
         public int place(double val) {
             return (int) ((val + 1.0) / (2.0/DIM));
         }
@@ -112,9 +128,13 @@ public class HeatMap {
         }
     }
 
+    /**
+     * custom thread class for implementing the new scan.
+     * It scans based on a map and returns decay at a point.
+     */
     static class HandCraftedScan implements Runnable {
         Long time;
-        long decay = 3;
+        long decay = 3; //arbitrary decay threshold
         int[] cells;
         Map<Long, TimeStamp> collection;
 
@@ -137,6 +157,13 @@ public class HeatMap {
             }
             heatmaps.put(time,cells);
         }
+
+        /**
+         * This function applies a history weighting where it divides
+         * by the weight to get the weight.
+         * @param timeAtCell
+         * @param weight
+         */
         private void weight(int[] timeAtCell, int weight) {
             for (int i = 0; i< timeAtCell.length;i++) {
                 cells[i]+=timeAtCell[i]/weight;
@@ -171,31 +198,28 @@ public class HeatMap {
     }
 
     public static void main(String[] args) throws FileNotFoundException, InterruptedException {
+        //creates a list of observation
         ArrayList<Observation> gridData = new ArrayList<>();
         uniformSpray();
         readFile(gridData);
-        System.out.println(gridData.size());
+
+        //initialize our general scan
         HeatScan scan = new HeatScan(gridData);
-        //Map<Long, ArrayList<Observation>> test = scan.getReduction().all;
-        //System.out.println(test.size()+" "+ test);
         ExecutorService threadPool = Executors.newCachedThreadPool();
 
+        //this gets the reduce after our first pass
         reduced = scan.getReduction();
-        Map<Long, TimeStamp> collection = scan.getReduction().collection;
-        System.out.println(collection + " size:" + collection.size());
 
-        ArrayList<HandCraftedScan> tasks = new ArrayList<>();
+        /**
+         * Handcrafted parallel process below since it doesn't write to the same
+         * place in the array, we can afford to call multiple creates at the same
+         * time.
+         */
         for (int i = 1; i<=reduced.collection.size();i++) {
             threadPool.execute(new HandCraftedScan(reduced,i));
         }
-        //threadPool.invokeAll(tasks);
-        int[] temp = heatmaps.get(4L);
-        System.out.println(temp);
-        for(int i = 0; i<temp.length;i++) {
-            System.out.print(temp[i]);
-        }
-        System.out.println();
 
+        //code snippets lifted from the other griddemo to animate our sample
         grid = new Color[DIM][DIM];
         application = new JFrame();
         application.setDefaultCloseOperation(JFrame.EXIT_ON_CLOSE);
@@ -218,20 +242,40 @@ public class HeatMap {
      * This generates a dataset and puts it into a file. Lifted from the observation file.
      * @throws FileNotFoundException
      */
-    public static void uniformSpray() throws FileNotFoundException{
+    public static void uniformSpray() {
         final String FILENAME = "obs_uniform_spray.dat";
-        Random rand = new Random();
+        //generates
         try {
             ObjectOutputStream out = new ObjectOutputStream(new FileOutputStream(FILENAME));
             int t = 0;
-            for (double r = -1; r <= 1; r += 0.1) {
+            for (double r = -.95; r <= .95; r += 0.1) {
                 t++; // each row has the same value of t so we can see differences in step 7
-                for (double c = -1; c <= 1; c += 0.1) {
-                    double d = rand.nextDouble()*2 -1;
-                    if (c<0&&r<0) {
-                        out.writeObject(new Observation(t, c, r));
-                    } else {
-                        out.writeObject(new Observation(t, r, c));
+                for (double c = -.95; c <= .95; c += 0.1) {
+                    out.writeObject(new Observation(t,r,-r));
+                    out.writeObject(new Observation(t,-r,r));
+                    out.writeObject(new Observation(t,r,r));
+                    out.writeObject(new Observation(t,-r,-r));
+                    out.writeObject(new Observation(t,0,-r));
+                    out.writeObject(new Observation(t,-r,0));
+                    out.writeObject(new Observation(t,0,r));
+                    out.writeObject(new Observation(t,r,0));
+                }
+            }
+            for (double r = -.95; r <= .95; r += 0.1) {
+
+                out.writeObject(new Observation(t,0,0));
+                t++; // each row has the same value of t so we can see differences in step 7
+                for (double c = -.95; c <= .95; c += 0.1) {
+
+                    if (c>0 && r > 0) {
+                        out.writeObject(new Observation(t, r, -r));
+                        out.writeObject(new Observation(t, -r, r));
+                        out.writeObject(new Observation(t, r, r));
+                        out.writeObject(new Observation(t, -r, -r));
+                        out.writeObject(new Observation(t, 0, -r));
+                        out.writeObject(new Observation(t, -r, 0));
+                        out.writeObject(new Observation(t, 0, r));
+                        out.writeObject(new Observation(t, r, 0));
                     }
                 }
             }
@@ -314,8 +358,6 @@ public class HeatMap {
      * @param grid the grid to be filled with colors.
      */
     private static void fillGrid(Color[][] grid) {
-        int pixels = grid.length * grid[0].length;
-        int counter = 0;
         for (int r = 0; r < grid.length; r++) {
             for (int c = 0; c < grid[r].length; c++) {
                 grid[r][c] = interpolateColor(heatmaps.get(CURRENT)[r * DIM + c], COLD, HOT);
@@ -331,7 +373,17 @@ public class HeatMap {
      * @return the color object created with the new color points.
      */
     private static Color interpolateColor(double ratio, Color a, Color b) {
-        ratio = Math.min(ratio, 1.0);
+        if (ratio>=20.0) {
+            ratio=1;
+        } else if (ratio>15.0) {
+            ratio = .75;
+        } else if (ratio>5) {
+            ratio = .5;
+        } else if (ratio > 0) {
+            ratio = .25;
+        } else {
+            ratio = 0;
+        }
         int ax = a.getRed();
         int ay = a.getGreen();
         int az = a.getBlue();
