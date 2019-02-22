@@ -33,11 +33,15 @@ public class HeatMap {
     private static Map<Long,int[]> heatmaps = new HashMap<>();
 
 
-    
+
     static class Tally {
 
         public Map<Long,ArrayList<Observation>> all;    //for storing into our map first time
         public Map<Long, TimeStamp> collection;         //stores map matching timestamp second
+
+        private int[]cells;
+        private Object[] history;
+        private int front, back;
 
         /**
          * Tally for part 2 that holds a collection of int array per timestamp seconds
@@ -46,6 +50,7 @@ public class HeatMap {
             collection = new HashMap<>();
             all = new HashMap<>();
         }
+
 
         public Tally(Observation o) {
             this();
